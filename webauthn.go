@@ -7,7 +7,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
-type PassKey struct {
+type Passkey struct {
 	ID              []byte
 	PublicKey       []byte
 	AttestationType string
@@ -22,8 +22,8 @@ type WebAuthnUser struct {
 }
 
 // Global storage for POC
-var usersDB = make(map[string][]PassKey)
-var webAuthn *webauthn.WebAuthn
+var userPasskeys = make(map[string][]Passkey)
+var webAuthnInstance *webauthn.WebAuthn
 
 // WebAuthn user interface implementation
 func (u *WebAuthnUser) WebAuthnID() []byte {
@@ -53,8 +53,8 @@ func generateUserID() []byte {
 	return id
 }
 
-func getWebAuthnUser(email string) *WebAuthnUser {
-	passkeys := usersDB[email]
+func getUserForWebAuthn(email string) *WebAuthnUser {
+	passkeys := userPasskeys[email]
 	credentials := make([]webauthn.Credential, len(passkeys))
 	
 	for i, pk := range passkeys {
@@ -73,23 +73,23 @@ func getWebAuthnUser(email string) *WebAuthnUser {
 	}
 }
 
-func savePassKey(email string, credential *webauthn.Credential) {
-	passkey := PassKey{
+func savePasskey(email string, credential *webauthn.Credential) {
+	passkey := Passkey{
 		ID:              credential.ID,
 		PublicKey:       credential.PublicKey,
 		AttestationType: credential.AttestationType,
 		CreatedAt:       time.Now(),
 	}
 	
-	usersDB[email] = append(usersDB[email], passkey)
+	userPasskeys[email] = append(userPasskeys[email], passkey)
 }
 
-func getPassKeyCount(email string) int {
-	return len(usersDB[email])
+func getPasskeyCount(email string) int {
+	return len(userPasskeys[email])
 }
 
-func findUserByCredentialID(credentialID string) string {
-	for email, passkeys := range usersDB {
+func findUserByPasskeyCredentialID(credentialID string) string {
+	for email, passkeys := range userPasskeys {
 		for _, passkey := range passkeys {
 			// Compare the credential ID (convert to string for comparison)
 			if string(passkey.ID) == credentialID {
