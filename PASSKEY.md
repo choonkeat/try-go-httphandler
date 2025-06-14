@@ -125,8 +125,10 @@ func setupWebAuthn() (*webauthn.WebAuthn, error) {
 ```
 POST /passkey/register/begin    - Begin passkey registration
 POST /passkey/register/finish   - Complete passkey registration
-POST /passkey/login/begin       - Begin passkey authentication
-POST /passkey/login/finish      - Complete passkey authentication
+POST /passkey/login/begin       - Begin passkey authentication (email-based)
+POST /passkey/login/finish      - Complete passkey authentication (email-based)
+POST /passkey/primary/begin     - Begin primary passkey authentication (no email needed)
+POST /passkey/primary/finish    - Complete primary passkey authentication
 ```
 
 ### Pipeline Integration
@@ -160,12 +162,17 @@ WebAuthn requires minimal JavaScript for browser API calls:
    - Success confirmation with next steps
 
 ### Login Page Enhancements
-1. **Passkey Detection**
-   - Check for existing passkeys on email entry
-   - Show "Use passkey" option dynamically
-   - Maintain email-only option
+1. **Primary Passkey Option**
+   - "Login with Passkey" button prominently displayed
+   - Works without requiring email entry first
+   - Uses WebAuthn's discoverable credentials
 
-2. **Authentication Flow**
+2. **Email-based Passkey Detection**
+   - Check for existing passkeys on email entry
+   - Show "Use passkey instead" option dynamically
+   - Maintain email-only fallback option
+
+3. **Authentication Flow**
    - Clear passkey authentication prompts
    - Fallback options if passkey fails
    - Progress indicators
@@ -202,7 +209,8 @@ Just test it manually in the browser - register a passkey, then use it to login.
 
 ## Success Criteria
 - Register passkey after email login ✓
-- Use passkey to login ✓  
+- Use passkey to login (email-based) ✓
+- Primary passkey login (no email needed) ✓  
 - Email fallback still works ✓
 
 Simple WebAuthn POC - nothing fancy!

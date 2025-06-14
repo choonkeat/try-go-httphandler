@@ -115,6 +115,47 @@
             color: #111827;
         }
         
+        .passkey-setup, .passkey-info {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            border: 2px solid #e5e7eb;
+            border-radius: 0.5rem;
+            background-color: #f9fafb;
+        }
+        
+        .setup-title, .info-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 0.5rem;
+        }
+        
+        .setup-text, .info-text {
+            color: #6b7280;
+            margin-bottom: 1rem;
+        }
+        
+        .setup-button {
+            padding: 0.75rem 1.5rem;
+            background-color: #059669;
+            color: white;
+            border: none;
+            border-radius: 0.375rem;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.15s ease-in-out;
+        }
+        
+        .setup-button:hover {
+            background-color: #047857;
+        }
+        
+        .setup-button:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgb(5 150 105 / 0.1);
+        }
+        
         @media (max-width: 640px) {
             .nav-content {
                 flex-direction: column;
@@ -162,10 +203,124 @@
                             You have successfully logged in with email: 
                             <span class="email-highlight">{{.Email}}</span>
                         </p>
+                        
+                        {{if eq .PasskeyCount 0}}
+                        <div class="passkey-setup">
+                            <h3 class="setup-title">🔐 Set up a passkey for faster login</h3>
+                            <p class="setup-text">Use your fingerprint, face, or security key to sign in quickly and securely.</p>
+                            <button id="setupPasskey" class="setup-button">Set up passkey</button>
+                        </div>
+                        {{else}}
+                        <div class="passkey-info">
+                            <h3 class="info-title">🔐 Passkeys</h3>
+                            <p class="info-text">You have {{.PasskeyCount}} passkey(s) set up.</p>
+                            <button id="addPasskey" class="setup-button">Add another passkey</button>
+                        </div>
+                        {{end}}
                     </div>
                 </div>
             </div>
         </main>
     </div>
+    
+    <script>
+        function setupPasskey() {
+            if (!window.PublicKeyCredential) {
+                alert('WebAuthn is not supported in this browser');
+                return;
+            }
+            
+            fetch('/passkey/register/begin', { method: 'POST' })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.error || 'Registration failed');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(options => {
+                    // Convert base64 strings to ArrayBuffers
+                    options.publicKey.challenge = base64ToArrayBuffer(options.publicKey.challenge);
+                    options.publicKey.user.id = base64ToArrayBuffer(options.publicKey.user.id);
+                    
+                    return navigator.credentials.create(options);
+                })
+                .then(credential => {
+                    // Convert ArrayBuffers back to base64 for sending
+                    const credentialData = {
+                        id: credential.id,
+                        rawId: arrayBufferToBase64(credential.rawId),
+                        response: {
+                            clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
+                            attestationObject: arrayBufferToBase64(credential.response.attestationObject)
+                        },
+                        type: credential.type
+                    };
+                    
+                    return fetch('/passkey/register/finish', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(credentialData)
+                    });
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.error || 'Registration failed');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(result => {
+                    if (result.status === 'success') {
+                        alert('Passkey registered successfully!');
+                        location.reload();
+                    } else {
+                        alert('Failed to register passkey');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to register passkey: ' + error.message);
+                });
+        }
+        
+        function base64ToArrayBuffer(base64) {
+            // Convert base64url to base64
+            base64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+            while (base64.length % 4) {
+                base64 += '=';
+            }
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+        
+        function arrayBufferToBase64(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const setupBtn = document.getElementById('setupPasskey');
+            const addBtn = document.getElementById('addPasskey');
+            
+            if (setupBtn) {
+                setupBtn.addEventListener('click', setupPasskey);
+            }
+            
+            if (addBtn) {
+                addBtn.addEventListener('click', setupPasskey);
+            }
+        });
+    </script>
 </body>
 </html>
