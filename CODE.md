@@ -1,0 +1,12 @@
+- Prefer Go stdlibs, e.g. "flags"
+  - But instead of http.HandlerFunc or http.Handler, use github.com/alvinchoong/go-httphandler
+    - use its pipeline and responder APIs
+    - do not use httphandler.HandleWithInput
+    - refer to godoc at https://pkg.go.dev/github.com/alvinchoong/go-httphandler
+  - Prefer errmain and runCtxFuncs pattern in https://gist.github.com/choonkeat/f7aeba2432d3e20a571ae86fa83cf0f7
+- Prefer not to use any Javascript
+- Prefer shadcn for markup and styling
+- Put html javascript strings in their own files, not inside .go files
+- Use a Makefile
+- Use config structs instead of loose variables for command line flags
+- Keep main.go minimal - just flags, boot, and shutdown - move application logic to separate files
