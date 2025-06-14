@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	host = flag.String("host", "localhost", "Server host")
-	port = flag.Int("port", 8080, "Server port")
+	host            = flag.String("host", "localhost", "Server host")
+	port            = flag.Int("port", 8080, "Server port")
+	passkeyJSONFile = flag.String("passkey-jsonfile", "", "Optional JSON file to persist passkey data")
 )
 
 func main() {
@@ -27,8 +28,9 @@ func errmain(ctx context.Context) error {
 	flag.Parse()
 
 	config := Config{
-		Host: *host,
-		Port: *port,
+		Host:            *host,
+		Port:            *port,
+		PasskeyJSONFile: *passkeyJSONFile,
 	}
 
 	// Run HTTP server

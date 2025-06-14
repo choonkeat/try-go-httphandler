@@ -11,6 +11,14 @@ import (
 )
 
 func httpServerFunc(ctx context.Context, config Config) error {
+	// Set global passkey file path
+	passkeyJSONFilePath = config.PasskeyJSONFile
+	
+	// Load existing passkeys from file if specified
+	if err := loadPasskeysFromFile(); err != nil {
+		return fmt.Errorf("failed to load passkeys from file: %w", err)
+	}
+	
 	// Initialize WebAuthn
 	var err error
 	webAuthnInstance, err = webauthn.New(&webauthn.Config{

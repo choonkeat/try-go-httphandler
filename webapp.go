@@ -1,8 +1,9 @@
 package main
 
 type Config struct {
-	Host string
-	Port int
+	Host            string
+	Port            int
+	PasskeyJSONFile string
 }
 
 type LoginFormData struct {

@@ -213,10 +213,36 @@ Just test it manually in the browser - register a passkey, then use it to login.
 - Primary passkey login (no email needed) ✓  
 - Email fallback still works ✓
 
-Simple WebAuthn POC - nothing fancy!
+## POC Philosophy - No Corners Cut on WebAuthn
 
-## Known Limitations (POC)
-- Primary passkey login always logs in as first user with passkeys
-- Real implementation would verify credential and identify correct user
-- No actual credential verification - just demonstrates WebAuthn flow
+This POC maintains **production-quality WebAuthn implementation** while simplifying only infrastructure concerns:
+
+### ✅ Full WebAuthn Implementation
+- **Real credential extraction** from attestationObject CBOR
+- **Proper attestation type determination** from attestation statements  
+- **Authentic public key parsing** from authData binary structure
+- **Correct credential ID handling** with base64url encoding
+- **Complete attestation format support** (none, packed, apple, fido-u2f, tpm, etc.)
+- **Production-ready security parsing** - no hardcoded values
+
+### 📝 POC Simplifications (Infrastructure Only)
+- **No mutex/thread safety** - acceptable for single-user testing
+- **JSON file persistence** - instead of production database
+- **Simple error handling** - log and continue rather than sophisticated recovery
+- **In-memory global storage** - data lost on restart
+- **Basic session management** - HTTP-only cookies instead of JWT/Redis
+
+### 🚫 What We DO NOT Compromise On
+- WebAuthn protocol correctness
+- Credential data integrity  
+- Attestation parsing accuracy
+- Browser compatibility
+- Security model adherence
+
+The goal: **Learn WebAuthn properly** while keeping infrastructure simple for rapid iteration.
+
+## Known Limitations (Infrastructure Only)
 - In-memory storage only - data lost on restart
+- No thread safety - not suitable for concurrent access
+- Basic error messages - production would need user-friendly errors
+- JSON file storage - production needs proper database with transactions

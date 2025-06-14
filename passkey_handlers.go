@@ -3,13 +3,246 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/alvinchoong/go-httphandler"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/go-webauthn/webauthn/webauthn"
 )
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// Helper functions for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func getInterfaceMapKeys(m map[interface{}]interface{}) []interface{} {
+	keys := make([]interface{}, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func getSliceLen(v interface{}) int {
+	if slice, ok := v.([]interface{}); ok {
+		return len(slice)
+	}
+	if slice, ok := v.([]byte); ok {
+		return len(slice)
+	}
+	return -1
+}
+
+type WebAuthnCredentialData struct {
+	ID              []byte
+	PublicKey       []byte
+	AttestationType string
+	Format          string
+}
+
+func extractWebAuthnCredential(credData CredentialData) (*WebAuthnCredentialData, error) {
+	// Extract the response object
+	response, ok := credData.Credential["response"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("failed to extract response from credential data")
+	}
+	
+	// Extract the attestationObject (base64 encoded)
+	attestationObjectB64, ok := response["attestationObject"].(string)
+	if !ok {
+		return nil, fmt.Errorf("failed to extract attestationObject from response")
+	}
+	
+	// Decode from base64
+	attestationObjectBytes, err := base64.StdEncoding.DecodeString(attestationObjectB64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode attestationObject from base64: %w", err)
+	}
+	
+	// Parse CBOR attestation object
+	var attestationObject map[string]interface{}
+	if err := cbor.Unmarshal(attestationObjectBytes, &attestationObject); err != nil {
+		return nil, fmt.Errorf("failed to parse attestationObject CBOR: %w", err)
+	}
+	
+	// DEBUG: Log exactly what browser sent
+	log.Printf("🔍 Raw attestationObject keys: %v", getMapKeys(attestationObject))
+	for key, value := range attestationObject {
+		if key == "attStmt" {
+			if attStmt, ok := value.(map[interface{}]interface{}); ok {
+				log.Printf("🔍 attStmt keys: %v", getInterfaceMapKeys(attStmt))
+				for k, v := range attStmt {
+					log.Printf("🔍 attStmt[%v] = %T (len=%d if slice)", k, v, getSliceLen(v))
+				}
+			}
+		} else {
+			log.Printf("🔍 attestationObject[%s] = %T", key, value)
+		}
+	}
+	
+	// Extract format
+	format, ok := attestationObject["fmt"].(string)
+	if !ok {
+		return nil, fmt.Errorf("no fmt field found in attestationObject")
+	}
+	
+	log.Printf("🔍 Extracted format: %s", format)
+	
+	// Extract authData
+	authDataBytes, ok := attestationObject["authData"].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("failed to extract authData from attestationObject")
+	}
+	
+	// Parse authData to extract credential ID and public key
+	credentialID, publicKey, err := parseAuthData(authDataBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse authData: %w", err)
+	}
+	
+	// Determine attestation type based on format and attestation statement
+	attestationType := determineAttestationType(format, attestationObject)
+	
+	log.Printf("🔍 FINAL RESULT - Format: %s, Attestation: %s, CredID length: %d, PubKey length: %d", 
+		format, attestationType, len(credentialID), len(publicKey))
+	
+	return &WebAuthnCredentialData{
+		ID:              credentialID,
+		PublicKey:       publicKey,
+		AttestationType: attestationType,
+		Format:          format,
+	}, nil
+}
+
+func parseAuthData(authData []byte) (credentialID []byte, publicKey []byte, err error) {
+	if len(authData) < 37 {
+		return nil, nil, fmt.Errorf("authData too short: %d bytes", len(authData))
+	}
+	
+	// Skip rpIdHash (32 bytes) and flags (1 byte) and signCount (4 bytes)
+	offset := 37
+	
+	// Check if attestedCredentialData is present (AT flag in flags byte)
+	flags := authData[32]
+	if (flags & 0x40) == 0 {
+		return nil, nil, fmt.Errorf("attestedCredentialData not present (AT flag not set)")
+	}
+	
+	if len(authData) < offset+16+2 {
+		return nil, nil, fmt.Errorf("authData too short for attestedCredentialData")
+	}
+	
+	// Skip AAGUID (16 bytes)
+	offset += 16
+	
+	// Read credential ID length (2 bytes, big endian)
+	credentialIDLength := binary.BigEndian.Uint16(authData[offset : offset+2])
+	offset += 2
+	
+	if len(authData) < offset+int(credentialIDLength) {
+		return nil, nil, fmt.Errorf("authData too short for credential ID")
+	}
+	
+	// Extract credential ID
+	credentialID = authData[offset : offset+int(credentialIDLength)]
+	offset += int(credentialIDLength)
+	
+	// The rest is the CBOR-encoded public key
+	if offset >= len(authData) {
+		return nil, nil, fmt.Errorf("no public key data found")
+	}
+	
+	publicKeyBytes := authData[offset:]
+	
+	// Parse the CBOR public key to validate it's well-formed
+	var publicKeyMap map[interface{}]interface{}
+	if err := cbor.Unmarshal(publicKeyBytes, &publicKeyMap); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse public key CBOR: %w", err)
+	}
+	
+	log.Printf("Parsed public key with %d CBOR fields", len(publicKeyMap))
+	
+	return credentialID, publicKeyBytes, nil
+}
+
+func determineAttestationType(format string, attestationObject map[string]interface{}) string {
+	attStmt, ok := attestationObject["attStmt"].(map[interface{}]interface{})
+	if !ok {
+		log.Printf("🔍 No attStmt found, defaulting to none")
+		return "none"
+	}
+	
+	log.Printf("🔍 Determining attestation type for format '%s' with attStmt keys: %v", format, getInterfaceMapKeys(attStmt))
+	
+	switch format {
+	case "none":
+		return "none"
+		
+	case "packed":
+		// Check for certificates in attestation statement
+		if certs, exists := attStmt["x5c"]; exists && certs != nil {
+			if certArray, ok := certs.([]interface{}); ok && len(certArray) > 0 {
+				return "basic" // Has attestation certificates
+			}
+		}
+		// Check for self-attestation
+		if _, exists := attStmt["sig"]; exists {
+			return "self" // Self-signed
+		}
+		return "none"
+		
+	case "tpm":
+		// TPM attestation typically provides basic attestation
+		if certs, exists := attStmt["x5c"]; exists && certs != nil {
+			return "basic"
+		}
+		return "none"
+		
+	case "fido-u2f":
+		// FIDO U2F requires attestation certificate
+		if certs, exists := attStmt["x5c"]; exists && certs != nil {
+			if certArray, ok := certs.([]interface{}); ok && len(certArray) > 0 {
+				return "basic"
+			}
+		}
+		return "none"
+		
+	case "apple":
+		// Apple attestation can be anonymous (none) or with certificates (basic)
+		if certs, exists := attStmt["x5c"]; exists && certs != nil {
+			if certArray, ok := certs.([]interface{}); ok && len(certArray) > 0 {
+				return "basic"
+			}
+		}
+		return "none"
+		
+	case "android-key", "android-safetynet":
+		// Android attestation typically provides basic attestation
+		if certs, exists := attStmt["x5c"]; exists && certs != nil {
+			return "basic"
+		}
+		return "none"
+		
+	default:
+		log.Printf("Unknown attestation format: %s, defaulting to none", format)
+		return "none"
+	}
+}
 
 func passkeyRegisterBeginHandler(ctx context.Context, session SessionData) httphandler.Responder {
 	if session.Email == "" {
@@ -48,23 +281,24 @@ func passkeyRegisterFinishHandler(ctx context.Context, session SessionData, cred
 	
 	log.Printf("Passkey registration finish for user: %s", session.Email)
 	
-	// Extract the real credential ID from the browser response
-	credentialID, ok := credData.Credential["id"].(string)
-	if !ok {
-		log.Printf("Failed to extract credential ID from registration")
-		return ErrorResponder{Message: "Invalid credential data", Status: http.StatusBadRequest}
+	// Extract the real WebAuthn credential data from the attestation object
+	webauthnCred, err := extractWebAuthnCredential(credData)
+	if err != nil {
+		log.Printf("Failed to extract WebAuthn credential: %v", err)
+		return ErrorResponder{Message: "Invalid WebAuthn credential data", Status: http.StatusBadRequest}
 	}
 	
-	log.Printf("Registering passkey with ID %s for user %s", credentialID, session.Email)
+	log.Printf("Registering passkey for user %s - Format: %s, Attestation: %s, CredID: %x", 
+		session.Email, webauthnCred.Format, webauthnCred.AttestationType, webauthnCred.ID[:min(8, len(webauthnCred.ID))])
 	
 	credential := &webauthn.Credential{
-		ID:              []byte(credentialID),
-		PublicKey:       []byte("fake-public-key-" + session.Email),
-		AttestationType: "none",
+		ID:              webauthnCred.ID,
+		PublicKey:       webauthnCred.PublicKey,
+		AttestationType: webauthnCred.AttestationType,
 	}
 	
-	savePasskey(session.Email, credential)
-	log.Printf("Saved passkey for user %s with ID %s. Total passkeys: %d", session.Email, credentialID, getPasskeyCount(session.Email))
+	savePasskey(session.Email, credential, webauthnCred.Format)
+	log.Printf("Saved passkey for user %s with ID %x. Total passkeys: %d", session.Email, webauthnCred.ID[:min(8, len(webauthnCred.ID))], getPasskeyCount(session.Email))
 	
 	return JSONResponder{Data: map[string]string{"status": "success"}}
 }
