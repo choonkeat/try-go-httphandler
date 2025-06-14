@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 
@@ -30,6 +31,10 @@ type SessionData struct {
 type DashboardData struct {
 	Email        string
 	PasskeyCount int
+}
+
+type CredentialData struct {
+	Credential map[string]interface{} `json:"credential"`
 }
 
 type HTMLResponder struct {
@@ -96,6 +101,8 @@ func httpServerFunc(ctx context.Context, config Config) error {
 	// Create pipelines
 	sessionPipeline := httphandler.NewPipeline1(extractSession)
 	loginFormPipeline := httphandler.NewPipeline1(extractLoginForm)
+	credentialPipeline := httphandler.NewPipeline1(extractCredentialDataOnly)
+	sessionCredentialPipeline := httphandler.NewPipeline2(extractSession, extractCredentialData)
 
 	mux := http.NewServeMux()
 
@@ -107,11 +114,11 @@ func httpServerFunc(ctx context.Context, config Config) error {
 	
 	// WebAuthn routes
 	mux.Handle("/passkey/register/begin", httphandler.HandlePipeline1(sessionPipeline, passkeyRegisterBeginHandler))
-	mux.Handle("/passkey/register/finish", httphandler.HandlePipeline1(sessionPipeline, passkeyRegisterFinishHandler))
+	mux.Handle("/passkey/register/finish", httphandler.HandlePipeline2(sessionCredentialPipeline, passkeyRegisterFinishHandler))
 	mux.Handle("/passkey/login/begin", httphandler.HandlePipeline1(loginFormPipeline, passkeyLoginBeginHandler))
 	mux.Handle("/passkey/login/finish", httphandler.HandlePipeline1(loginFormPipeline, passkeyLoginFinishHandler))
 	mux.Handle("/passkey/primary/begin", httphandler.HandlePipeline1(loginFormPipeline, passkeyPrimaryBeginHandler))
-	mux.Handle("/passkey/primary/finish", httphandler.HandlePipeline1(loginFormPipeline, passkeyPrimaryFinishHandler))
+	mux.Handle("/passkey/primary/finish", httphandler.HandlePipeline1(credentialPipeline, passkeyPrimaryFinishHandler))
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
 	server := &http.Server{
@@ -149,6 +156,42 @@ func extractLoginForm(r *http.Request) (LoginFormData, error) {
 		Method: r.Method,
 		Email:  r.FormValue("email"),
 	}, nil
+}
+
+func extractCredentialData(r *http.Request, session SessionData) (CredentialData, error) {
+	if r.Method != "POST" {
+		return CredentialData{}, nil
+	}
+	
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return CredentialData{}, err
+	}
+	
+	var credData CredentialData
+	if err := json.Unmarshal(body, &credData); err != nil {
+		return CredentialData{}, err
+	}
+	
+	return credData, nil
+}
+
+func extractCredentialDataOnly(r *http.Request) (CredentialData, error) {
+	if r.Method != "POST" {
+		return CredentialData{}, nil
+	}
+	
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return CredentialData{}, err
+	}
+	
+	var credData CredentialData
+	if err := json.Unmarshal(body, &credData); err != nil {
+		return CredentialData{}, err
+	}
+	
+	return credData, nil
 }
 
 func homeHandler(ctx context.Context, session SessionData) httphandler.Responder {
@@ -252,26 +295,30 @@ func passkeyRegisterBeginHandler(ctx context.Context, session SessionData) httph
 	}
 }
 
-func passkeyRegisterFinishHandler(ctx context.Context, session SessionData) httphandler.Responder {
+func passkeyRegisterFinishHandler(ctx context.Context, session SessionData, credData CredentialData) httphandler.Responder {
 	if session.Email == "" {
 		return ErrorResponder{Message: "Not authenticated", Status: http.StatusUnauthorized}
 	}
 	
 	log.Printf("Passkey registration finish for user: %s", session.Email)
 	
-	// For POC, we'll just fake a successful registration
-	// In a real implementation, you'd parse the credential from the request body
-	// and call webAuthn.FinishRegistration()
+	// Extract the real credential ID from the browser response
+	credentialID, ok := credData.Credential["id"].(string)
+	if !ok {
+		log.Printf("Failed to extract credential ID from registration")
+		return ErrorResponder{Message: "Invalid credential data", Status: http.StatusBadRequest}
+	}
 	
-	// Simulate saving a passkey
-	fakeCredential := &webauthn.Credential{
-		ID:              []byte("fake-credential-id"),
-		PublicKey:       []byte("fake-public-key"),
+	log.Printf("Registering passkey with ID %s for user %s", credentialID, session.Email)
+	
+	credential := &webauthn.Credential{
+		ID:              []byte(credentialID),
+		PublicKey:       []byte("fake-public-key-" + session.Email),
 		AttestationType: "none",
 	}
 	
-	savePassKey(session.Email, fakeCredential)
-	log.Printf("Saved passkey for user %s. Total passkeys: %d", session.Email, getPassKeyCount(session.Email))
+	savePassKey(session.Email, credential)
+	log.Printf("Saved passkey for user %s with ID %s. Total passkeys: %d", session.Email, credentialID, getPassKeyCount(session.Email))
 	
 	return JSONResponder{Data: map[string]string{"status": "success"}}
 }
@@ -358,24 +405,23 @@ func passkeyPrimaryBeginHandler(ctx context.Context, loginForm LoginFormData) ht
 	}
 }
 
-func passkeyPrimaryFinishHandler(ctx context.Context, loginForm LoginFormData) httphandler.Responder {
+func passkeyPrimaryFinishHandler(ctx context.Context, credData CredentialData) httphandler.Responder {
 	log.Printf("Primary passkey login finish")
 	
-	// For POC, we'll fake successful authentication
-	// In a real implementation, you'd verify the credential and determine which user it belongs to
-	
-	// Since this is a POC, let's just find any user with passkeys and log them in
-	var foundEmail string
-	for email, passkeys := range usersDB {
-		if len(passkeys) > 0 {
-			foundEmail = email
-			break
-		}
+	// Extract credential ID from the credential data
+	credentialID, ok := credData.Credential["id"].(string)
+	if !ok {
+		log.Printf("Failed to extract credential ID from request")
+		return ErrorResponder{Message: "Invalid credential data", Status: http.StatusBadRequest}
 	}
 	
+	log.Printf("Looking for user with credential ID: %s", credentialID)
+	
+	// Find which user this credential belongs to
+	foundEmail := findUserByCredentialID(credentialID)
 	if foundEmail == "" {
-		log.Printf("No users with passkeys found for primary login")
-		return ErrorResponder{Message: "No passkeys found", Status: http.StatusNotFound}
+		log.Printf("No user found for credential ID: %s", credentialID)
+		return ErrorResponder{Message: "Credential not found", Status: http.StatusNotFound}
 	}
 	
 	log.Printf("Primary passkey authentication successful for %s", foundEmail)

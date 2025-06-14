@@ -214,3 +214,9 @@ Just test it manually in the browser - register a passkey, then use it to login.
 - Email fallback still works ✓
 
 Simple WebAuthn POC - nothing fancy!
+
+## Known Limitations (POC)
+- Primary passkey login always logs in as first user with passkeys
+- Real implementation would verify credential and identify correct user
+- No actual credential verification - just demonstrates WebAuthn flow
+- In-memory storage only - data lost on restart

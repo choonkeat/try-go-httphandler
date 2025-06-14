@@ -261,7 +261,7 @@
                     return fetch('/passkey/register/finish', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(credentialData)
+                        body: JSON.stringify({ credential: credentialData })
                     });
                 })
                 .then(response => {

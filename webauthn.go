@@ -87,3 +87,15 @@ func savePassKey(email string, credential *webauthn.Credential) {
 func getPassKeyCount(email string) int {
 	return len(usersDB[email])
 }
+
+func findUserByCredentialID(credentialID string) string {
+	for email, passkeys := range usersDB {
+		for _, passkey := range passkeys {
+			// Compare the credential ID (convert to string for comparison)
+			if string(passkey.ID) == credentialID {
+				return email
+			}
+		}
+	}
+	return ""
+}
