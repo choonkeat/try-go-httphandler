@@ -1,0 +1,4 @@
+github.com/alvinchoong/go-httphandler v0.3.0 h1:gSkgEk9HRHQwG/Mqe8OUc2oKGyaV832gjYGEIolGgUU=
+github.com/alvinchoong/go-httphandler v0.3.0/go.mod h1:DeiAAXTJSf8BW/PBEzfzJZAlqakkwrYHnZCHC5JtIaY=
+golang.org/x/sync v0.15.0 h1:KWH3jNZsfyT6xfAfKiz6MRNmd46ByHDYaZ7KSkCtdW8=
+golang.org/x/sync v0.15.0/go.mod h1:1dzgHSNfp02xaA81J2MS99Qcpr2w7fw1gpm99rleRqA=
