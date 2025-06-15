@@ -22,6 +22,7 @@ func errmain(ctx context.Context) error {
 	var config Config
 	flag.StringVar(&config.Host, "host", "localhost", "Server host")
 	flag.IntVar(&config.Port, "port", 8080, "Server port")
+	flag.StringVar(&config.PasskeyHostname, "passkey-hostname", config.Host, "Optional webauthn relying party hostname")
 	flag.StringVar(&config.PasskeyJSONFile, "passkey-jsonfile", "", "Optional JSON file to persist passkey data")
 	flag.Parse()
 

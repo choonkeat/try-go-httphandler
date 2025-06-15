@@ -13,18 +13,18 @@ import (
 func httpServerFunc(ctx context.Context, config Config) error {
 	// Set global passkey file path
 	passkeyJSONFilePath = config.PasskeyJSONFile
-	
+
 	// Load existing passkeys from file if specified
 	if err := loadPasskeysFromFile(); err != nil {
 		return fmt.Errorf("failed to load passkeys from file: %w", err)
 	}
-	
+
 	// Initialize WebAuthn
 	var err error
 	webAuthnInstance, err = webauthn.New(&webauthn.Config{
 		RPDisplayName: "Go HTTP Handler Demo",
-		RPID:          config.Host,
-		RPOrigins:     []string{fmt.Sprintf("http://%s:%d", config.Host, config.Port)},
+		RPID:          config.PasskeyHostname,
+		RPOrigins:     []string{fmt.Sprintf("http://%s:%d", config.PasskeyHostname, config.Port)},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create WebAuthn: %w", err)
@@ -43,7 +43,7 @@ func httpServerFunc(ctx context.Context, config Config) error {
 	mux.Handle("/login", httphandler.HandlePipeline1(loginFormPipeline, loginHandler))
 	mux.Handle("/dashboard", httphandler.HandlePipeline1(sessionPipeline, dashboardHandler))
 	mux.HandleFunc("/logout", logoutHandler)
-	
+
 	// WebAuthn routes
 	mux.Handle("/passkey/register/begin", httphandler.HandlePipeline1(sessionPipeline, passkeyRegisterBeginHandler))
 	mux.Handle("/passkey/register/finish", httphandler.HandlePipeline2(sessionCredentialPipeline, passkeyRegisterFinishHandler))
