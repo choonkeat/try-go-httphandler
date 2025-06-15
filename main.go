@@ -10,12 +10,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var (
-	host            = flag.String("host", "localhost", "Server host")
-	port            = flag.Int("port", 8080, "Server port")
-	passkeyJSONFile = flag.String("passkey-jsonfile", "", "Optional JSON file to persist passkey data")
-)
-
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	if err := errmain(ctx); err != nil {
@@ -25,13 +19,11 @@ func main() {
 }
 
 func errmain(ctx context.Context) error {
+	var config Config
+	flag.StringVar(&config.Host, "host", "localhost", "Server host")
+	flag.IntVar(&config.Port, "port", 8080, "Server port")
+	flag.StringVar(&config.PasskeyJSONFile, "passkey-jsonfile", "", "Optional JSON file to persist passkey data")
 	flag.Parse()
-
-	config := Config{
-		Host:            *host,
-		Port:            *port,
-		PasskeyJSONFile: *passkeyJSONFile,
-	}
 
 	// Run HTTP server
 	return runCtxFuncs(ctx, func(ctx context.Context) error {
